@@ -11,7 +11,11 @@ struct SwiftTranscriptionSampleApp: App {
                 .environment(settings)
                 .preferredColorScheme(settings.colorScheme)
         }
-        .modelContainer(for: Memo.self)
+        .modelContainer(
+            for: Memo.self,
+            inMemory: true,
+            isAutosaveEnabled: true
+        )
 
         #if os(macOS)
             Settings {

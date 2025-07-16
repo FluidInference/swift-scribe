@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C70FF5082E276CF400B8B729 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = C70FF5072E276CF400B8B729 /* FluidAudio */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		56177C7C2DA2E84500A2A2BB /* SwiftScribe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftScribe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		785079145B6CEF6E2D011C0E /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -25,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C70FF5082E276CF400B8B729 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -104,6 +109,9 @@
 				Base,
 			);
 			mainGroup = 56177C732DA2E84500A2A2BB;
+			packageReferences = (
+				C70FF5062E276CF400B8B729 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 56177C7D2DA2E84500A2A2BB /* Products */;
 			projectDirPath = "";
@@ -438,6 +446,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C70FF5062E276CF400B8B729 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio/";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C70FF5072E276CF400B8B729 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C70FF5062E276CF400B8B729 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 56177C742DA2E84500A2A2BB /* Project object */;
 }

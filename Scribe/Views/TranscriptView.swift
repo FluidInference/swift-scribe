@@ -2,6 +2,8 @@ import AVFoundation
 import Foundation
 import Speech
 import SwiftUI
+import SwiftData
+import FluidAudio
 
 struct TranscriptView: View {
     @Binding var memo: Memo
@@ -9,8 +11,9 @@ struct TranscriptView: View {
     @State var isPlaying = false
     @State var isGenerating = false
 
-    @State var recorder: Recorder
+    @State var recorder: Recorder?
     @State var speechTranscriber: SpokenWordTranscriber
+    @State var diarizationManager: DiarizationManager
 
     @State var downloadProgress = 0.0
 
@@ -27,13 +30,27 @@ struct TranscriptView: View {
     @State var showingEnhancedView = false
     @State var enhancementError: String?
     @State var isEditingSummary = false
+    
+    // Speaker view state
+    @State var showingSpeakerView = false
 
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AppSettings.self) private var settings
+    
     init(memo: Binding<Memo>, isRecording: Binding<Bool>) {
         self._memo = memo
         self._isRecording = isRecording
         let transcriber = SpokenWordTranscriber(memo: memo)
-        recorder = Recorder(transcriber: transcriber, memo: memo)
         speechTranscriber = transcriber
+        
+        // Initialize diarization manager with default settings
+        // Will be updated with actual settings in onAppear
+        let diarizationConfig = DiarizerConfig()
+        diarizationManager = DiarizationManager(config: diarizationConfig)
+        
+        // Recorder will be initialized in onAppear with proper modelContext
+        recorder = nil
+        
         // Show enhanced view by default if summary exists
         showingEnhancedView = memo.summary.wrappedValue != nil
     }
@@ -48,6 +65,8 @@ struct TranscriptView: View {
                     } else {
                         if memo.summary != nil && showingEnhancedView {
                             enhancedView
+                        } else if memo.hasSpeakerData && showingSpeakerView {
+                            speakerView
                         } else {
                             playbackView
                         }
@@ -107,10 +126,16 @@ struct TranscriptView: View {
                             enhanceButton
                         }
 
-                        // View toggle button
+                        // View toggle buttons
                         if memo.summary != nil {
                             ToolbarItem {
                                 viewToggleButton
+                            }
+                        }
+                        
+                        if memo.hasSpeakerData {
+                            ToolbarItem {
+                                speakerViewToggleButton
                             }
                         }
                     }
@@ -162,7 +187,7 @@ struct TranscriptView: View {
                 }
                 Task {
                     do {
-                        try await recorder.record()
+                        try await recorder?.record()
                         print("DEBUG [TranscriptView]: Recording started successfully")
                     } catch let error as TranscriptionError {
                         print(
@@ -190,7 +215,7 @@ struct TranscriptView: View {
 
                 Task {
                     do {
-                        try await recorder.stopRecording()
+                        try await recorder?.stopRecording()
                         print("DEBUG [TranscriptView]: Recording stopped successfully")
                         // Generate title and summary after recording stops
                         await generateTitleIfNeeded()
@@ -209,6 +234,19 @@ struct TranscriptView: View {
             handlePlayback()
         }
         .onAppear {
+            // Update diarization manager with settings
+            diarizationManager.config = settings.diarizationConfig()
+            
+            // Initialize recorder with proper modelContext
+            if recorder == nil {
+                recorder = Recorder(
+                    transcriber: speechTranscriber,
+                    memo: $memo,
+                    diarizationManager: diarizationManager,
+                    modelContext: modelContext
+                )
+            }
+            
             // Connect the download progress
             if let progress = speechTranscriber.downloadProgress {
                 let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
@@ -269,9 +307,15 @@ struct TranscriptView: View {
                 if !memo.isDone {
                     recordButtonLarge
                 } else {
-                    // View toggle button (only show if summary exists)
-                    if memo.summary != nil {
-                        viewToggleButtonCompact
+                    // View toggle buttons
+                    HStack(spacing: 12) {
+                        if memo.summary != nil {
+                            viewToggleButtonCompact
+                        }
+                        
+                        if memo.hasSpeakerData {
+                            speakerViewToggleButtonCompact
+                        }
                     }
 
                     Spacer()
@@ -321,6 +365,9 @@ struct TranscriptView: View {
             Button {
                 withAnimation(.smooth(duration: 0.3)) {
                     showingEnhancedView.toggle()
+                    if showingEnhancedView {
+                        showingSpeakerView = false
+                    }
                 }
             } label: {
                 Label(
@@ -333,6 +380,28 @@ struct TranscriptView: View {
             .buttonStyle(.glass)
             .controlSize(.large)
             .tint(showingEnhancedView ? .gray : SpokenWordTranscriber.green)
+        }
+        
+        @ViewBuilder
+        private var speakerViewToggleButtonCompact: some View {
+            Button {
+                withAnimation(.smooth(duration: 0.3)) {
+                    showingSpeakerView.toggle()
+                    if showingSpeakerView {
+                        showingEnhancedView = false
+                    }
+                }
+            } label: {
+                Label(
+                    showingSpeakerView ? "Transcript" : "Speakers",
+                    systemImage: showingSpeakerView ? "doc.plaintext" : "person.2"
+                )
+                .font(.body)
+                .fontWeight(.medium)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.large)
+            .tint(showingSpeakerView ? .gray : .blue)
         }
 
         @ViewBuilder
@@ -451,6 +520,163 @@ struct TranscriptView: View {
             .background(.background.secondary.opacity(0.3))
         #endif
     }
+    
+    // MARK: - Speaker View
+    
+    @ViewBuilder
+    private var speakerView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            #if os(iOS)
+                // Simplified header for iOS
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2.fill")
+                        .font(.body)
+                        .foregroundStyle(.blue)
+
+                    Text("Speakers")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+
+                    Spacer()
+                    
+                    // Speaker count badge
+                    if memo.hasSpeakerData {
+                        Text("\(memo.speakers(in: modelContext).count)")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.blue, in: Capsule())
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            #endif
+
+            #if os(macOS)
+                // Header section with better spacing
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.2.fill")
+                            .font(.title2)
+                            .foregroundStyle(.blue)
+                            .symbolRenderingMode(.monochrome)
+
+                        Text("Speaker Diarization")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.primary)
+
+                        Spacer()
+                        
+                        // Speaker count and processing info
+                        if memo.hasSpeakerData {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("\(memo.speakers(in: modelContext).count) speakers")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("\(memo.speakerSegments.count) segments")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+            #endif
+
+            // Speaker transcript content
+            Group {
+                if memo.hasSpeakerData {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            // Speaker legend
+                            speakerLegend
+                            
+                            Divider()
+                            
+                            // Speaker-segmented transcript
+                            Text(memo.formattedTranscriptWithSpeakers(context: modelContext))
+                                .font(.body)
+                                .lineSpacing(6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                #if os(iOS)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                #else
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 16)
+                                #endif
+                                .textSelection(.enabled)
+                        }
+                    }
+                    #if os(macOS)
+                        .padding(.horizontal, 16)
+                    #endif
+                    .scrollEdgeEffectStyle(.soft, for: .all)
+                } else {
+                    // No speaker data state
+                    VStack(spacing: 20) {
+                        Image(systemName: "person.2.slash")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+
+                        VStack(spacing: 8) {
+                            Text("No Speaker Data")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+
+                            Text("Speaker diarization was not performed for this recording")
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #if os(macOS)
+            .background(.background.secondary.opacity(0.3))
+        #endif
+    }
+    
+    @ViewBuilder
+    private var speakerLegend: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Speakers")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            
+            let speakers = memo.speakers(in: modelContext)
+            LazyVGrid(columns: [
+                GridItem(.adaptive(minimum: 120))
+            ], spacing: 8) {
+                ForEach(speakers, id: \.id) { speaker in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(speaker.displayColor)
+                            .frame(width: 12, height: 12)
+                        
+                        Text(speaker.name)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
 
     // MARK: - Individual Toolbar Buttons
 
@@ -493,12 +719,35 @@ struct TranscriptView: View {
         Button {
             withAnimation(.smooth(duration: 0.3)) {
                 showingEnhancedView.toggle()
+                // Ensure only one special view is shown at a time
+                if showingEnhancedView {
+                    showingSpeakerView = false
+                }
             }
         } label: {
             Label(
                 showingEnhancedView ? "Transcript" : "Summary",
                 systemImage: showingEnhancedView
                     ? "doc.plaintext.fill" : "sparkles.rectangle.stack.fill"
+            )
+        }
+        .buttonStyle(.glass)
+    }
+    
+    @ViewBuilder
+    private var speakerViewToggleButton: some View {
+        Button {
+            withAnimation(.smooth(duration: 0.3)) {
+                showingSpeakerView.toggle()
+                // Ensure only one special view is shown at a time
+                if showingSpeakerView {
+                    showingEnhancedView = false
+                }
+            }
+        } label: {
+            Label(
+                showingSpeakerView ? "Transcript" : "Speakers",
+                systemImage: showingSpeakerView ? "doc.plaintext.fill" : "person.2.fill"
             )
         }
         .buttonStyle(.glass)
@@ -642,16 +891,16 @@ extension TranscriptView {
 
         if isPlaying {
             Task {
-                await recorder.playRecording()
+                await recorder?.playRecording()
             }
             timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
                 Task { @MainActor in
-                    currentPlaybackTime = recorder.playerNode?.currentTime ?? 0.0
+                    currentPlaybackTime = recorder?.playerNode?.currentTime ?? 0.0
                 }
             }
         } else {
             Task {
-                await recorder.stopPlaying()
+                await recorder?.stopPlaying()
             }
             currentPlaybackTime = 0.0
             timer = nil

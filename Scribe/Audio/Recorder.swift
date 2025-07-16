@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
 import SwiftUI
+import SwiftData
+import FluidAudio
 
 class Recorder {
     private var outputContinuation: AsyncStream<AudioData>.Continuation?
@@ -15,12 +17,18 @@ class Recorder {
 
     var memo: Binding<Memo>
     private let url: URL
+    
+    // Diarization support
+    private let diarizationManager: DiarizationManager
+    private let modelContext: ModelContext
 
-    init(transcriber: SpokenWordTranscriber, memo: Binding<Memo>) {
+    init(transcriber: SpokenWordTranscriber, memo: Binding<Memo>, diarizationManager: DiarizationManager, modelContext: ModelContext) {
         self.recordingEngine = AVAudioEngine()
         self.playbackEngine = AVAudioEngine()
         self.transcriber = transcriber
         self.memo = memo
+        self.diarizationManager = diarizationManager
+        self.modelContext = modelContext
         self.url = FileManager.default.temporaryDirectory
             .appending(component: UUID().uuidString)
             .appendingPathExtension("wav")
@@ -58,6 +66,15 @@ class Recorder {
             throw error
         }
 
+        // Initialize diarization manager
+        do {
+            try await diarizationManager.initialize()
+            print("DEBUG [Recorder]: Diarization manager initialized")
+        } catch {
+            print("DEBUG [Recorder]: Diarization setup failed: \(error)")
+            // Continue without diarization if it fails
+        }
+
         print("DEBUG [Recorder]: Audio session and transcriber set up successfully")
 
         // Create audio stream and process it
@@ -66,6 +83,9 @@ class Recorder {
             for await audioData in audioStreamSequence {
                 // Process the buffer for transcription
                 try await self.transcriber.streamAudioToTranscriber(audioData.buffer)
+                
+                // Also process for diarization
+                await self.diarizationManager.processAudioBuffer(audioData.buffer)
             }
         } catch {
             print("DEBUG [Recorder]: Audio streaming failed: \(error)")
@@ -103,6 +123,9 @@ class Recorder {
             print("DEBUG [Recorder]: Error finalizing transcription: \(error)")
             throw error
         }
+
+        // Process final diarization
+        await processFinalDiarization()
 
         print("DEBUG [Recorder]: Recording stopped and transcription finalized")
     }
@@ -264,5 +287,70 @@ class Recorder {
             playbackEngine.detach(playerNode)
             self.playerNode = nil
         }
+    }
+    
+    // MARK: - Diarization Processing
+    
+    private func processFinalDiarization() async {
+        print("DEBUG [Recorder]: Processing final diarization...")
+        
+        guard let diarizationResult = await diarizationManager.finishProcessing() else {
+            print("DEBUG [Recorder]: No diarization result available")
+            return
+        }
+        
+        print(
+            "DEBUG [Recorder]: Diarization completed with \(diarizationResult.segments.count) segments and \(diarizationResult.segments) speakers"
+        )
+        
+        // Update memo with diarization results on the main actor
+        await MainActor.run {
+            memo.wrappedValue.updateWithDiarizationResult(diarizationResult, in: modelContext)
+            
+            // If we have speaker segments, try to align them with transcription text
+            if !diarizationResult.segments.isEmpty {
+                alignTranscriptionWithSpeakers(diarizationResult)
+            }
+        }
+    }
+    
+    private func alignTranscriptionWithSpeakers(_ diarizationResult: DiarizationResult) {
+        print("DEBUG [Recorder]: Aligning transcription with speaker segments...")
+        
+        // Get the current transcription text
+        let transcriptionText = String(memo.wrappedValue.text.characters)
+        
+        // Simple alignment: distribute text proportionally across speaker segments
+        // In a production app, you'd want more sophisticated alignment
+        let sortedSegments = diarizationResult.segments.sorted(by: { $0.startTimeSeconds < $1.startTimeSeconds })
+        let totalDuration = sortedSegments.last?.endTimeSeconds ?? 1.0
+        
+        var textIndex = 0
+        
+        for segment in sortedSegments {
+            let segmentDuration = segment.endTimeSeconds - segment.startTimeSeconds
+            let segmentPortion = segmentDuration / totalDuration
+            let segmentTextLength = Int(Double(transcriptionText.count) * Double(segmentPortion))
+            
+            let endIndex = min(textIndex + segmentTextLength, transcriptionText.count)
+            
+            if textIndex < transcriptionText.count {
+                let startStringIndex = transcriptionText.index(transcriptionText.startIndex, offsetBy: textIndex)
+                let endStringIndex = transcriptionText.index(transcriptionText.startIndex, offsetBy: endIndex)
+                let segmentText = String(transcriptionText[startStringIndex..<endStringIndex])
+                
+                // Update the speaker segment with aligned text
+                if let speakerSegment = memo.wrappedValue.speakerSegments.first(where: { 
+                    $0.speakerId == segment.speakerId && 
+                    abs($0.startTime - TimeInterval(segment.startTimeSeconds)) < 0.1 
+                }) {
+                    speakerSegment.text = segmentText.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                
+                textIndex = endIndex
+            }
+        }
+        
+        print("DEBUG [Recorder]: Text alignment completed")
     }
 }
