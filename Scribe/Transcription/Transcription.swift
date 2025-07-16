@@ -26,6 +26,17 @@ final class SpokenWordTranscriber {
 
     static let locale = Locale(
         components: .init(languageCode: .english, script: nil, languageRegion: .unitedStates))
+    
+    // Fallback locales to try when the preferred locale isn't available
+    static let fallbackLocales = [
+        Locale(components: .init(languageCode: .english, script: nil, languageRegion: .unitedStates)),
+        Locale(components: .init(languageCode: .english, script: nil, languageRegion: .unitedKingdom)),
+        Locale(components: .init(languageCode: .english, script: nil, languageRegion: .canada)),
+        Locale(components: .init(languageCode: .english, script: nil, languageRegion: .australia)),
+        Locale(identifier: "en-US"),
+        Locale(identifier: "en"),
+        Locale.current
+    ]
 
     init(memo: Binding<Memo>) {
         print(
@@ -61,13 +72,18 @@ final class SpokenWordTranscriber {
             print("[Transcriber DEBUG]: Model check completed successfully")
         } catch let error as TranscriptionError {
             print("[Transcriber DEBUG]: Model setup failed with error: \(error.descriptionString)")
-            return
+            throw error
         }
 
         self.analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [
             transcriber
         ])
         print("[Transcriber DEBUG]: Best audio format: \(String(describing: analyzerFormat))")
+
+        guard analyzerFormat != nil else {
+            print("[Transcriber DEBUG]: ERROR - No compatible audio format found")
+            throw TranscriptionError.invalidAudioDataType
+        }
 
         recognizerTask = Task {
             print("[Transcriber DEBUG]: Starting recognition task...")
@@ -149,33 +165,96 @@ extension SpokenWordTranscriber {
     public func ensureModel(transcriber: SpeechTranscriber, locale: Locale) async throws {
         print("[Transcriber DEBUG]: Checking model availability for locale: \(locale.identifier)")
 
-        guard await supported(locale: locale) else {
-            print("[Transcriber DEBUG]: ERROR - Locale not supported: \(locale.identifier)")
+        // First try to download/install any needed assets
+        print("[Transcriber DEBUG]: Checking for required downloads...")
+        try await downloadIfNeeded(for: transcriber)
+        
+        // Check supported locales
+        let supportedLocales = await SpeechTranscriber.supportedLocales
+        print("[Transcriber DEBUG]: Found \(supportedLocales.count) supported locales")
+        
+        // If no locales are supported, try fallback approach
+        if supportedLocales.isEmpty {
+            print("[Transcriber DEBUG]: WARNING - No supported locales found. Trying fallback locales...")
+            
+            // Try each fallback locale
+            for fallbackLocale in SpokenWordTranscriber.fallbackLocales {
+                print("[Transcriber DEBUG]: Trying fallback locale: \(fallbackLocale.identifier)")
+                do {
+                    try await allocateLocale(locale: fallbackLocale)
+                    print("[Transcriber DEBUG]: Successfully allocated fallback locale: \(fallbackLocale.identifier)")
+                    return
+                } catch {
+                    print("[Transcriber DEBUG]: Fallback locale \(fallbackLocale.identifier) failed: \(error)")
+                    continue
+                }
+            }
+            
+            print("[Transcriber DEBUG]: All fallback locales failed")
             throw TranscriptionError.localeNotSupported
         }
-        print("[Transcriber DEBUG]: Locale is supported: \(locale.identifier)")
-
-        if await installed(locale: locale) {
-            print("[Transcriber DEBUG]: Model already installed for locale: \(locale.identifier)")
+        
+        // Check if preferred locale is supported
+        var localeToUse = locale
+        if await supported(locale: locale) {
+            print("[Transcriber DEBUG]: Preferred locale is supported: \(locale.identifier)")
         } else {
-            print("[Transcriber DEBUG]: Model not installed, attempting download...")
-            try await downloadIfNeeded(for: transcriber)
+            print("[Transcriber DEBUG]: Preferred locale not supported, trying fallbacks...")
+            
+            // Try to find a supported fallback locale
+            var foundSupportedLocale = false
+            for fallbackLocale in SpokenWordTranscriber.fallbackLocales {
+                if await supported(locale: fallbackLocale) {
+                    print("[Transcriber DEBUG]: Found supported fallback locale: \(fallbackLocale.identifier)")
+                    localeToUse = fallbackLocale
+                    foundSupportedLocale = true
+                    break
+                }
+            }
+            
+            guard foundSupportedLocale else {
+                print("[Transcriber DEBUG]: ERROR - No supported locale found among fallbacks")
+                throw TranscriptionError.localeNotSupported
+            }
+        }
+
+        if await installed(locale: localeToUse) {
+            print("[Transcriber DEBUG]: Model already installed for locale: \(localeToUse.identifier)")
+        } else {
+            print("[Transcriber DEBUG]: Model not installed for locale: \(localeToUse.identifier)")
         }
 
         // Always ensure locale is allocated after installation/download
-        try await allocateLocale(locale: SpokenWordTranscriber.locale)
+        try await allocateLocale(locale: localeToUse)
     }
 
     func supported(locale: Locale) async -> Bool {
         let supported = await SpeechTranscriber.supportedLocales
-        let isSupported = supported.map { $0.identifier(.bcp47) }.contains(
-            locale.identifier(.bcp47))
+        
+        // Check different locale identifier formats
+        let localeId = locale.identifier
+        let localeBCP47 = locale.identifier(.bcp47)
+        
+        // Check with different formatting approaches
+        let isSupported = supported.contains { supportedLocale in
+            supportedLocale.identifier == localeId ||
+            supportedLocale.identifier(.bcp47) == localeBCP47 ||
+            supportedLocale.identifier == "en-US" ||
+            supportedLocale.identifier(.bcp47) == "en-US"
+        }
+        
         print(
-            "[Transcriber DEBUG]: Supported locales check - locale: \(locale.identifier), supported: \(isSupported)"
+            "[Transcriber DEBUG]: Supported locales check - locale: \(localeId), bcp47: \(localeBCP47), supported: \(isSupported)"
         )
         print(
-            "[Transcriber DEBUG]: All supported locales: \(supported.map { $0.identifier(.bcp47) })"
+            "[Transcriber DEBUG]: All supported locales: \(supported.map { "\($0.identifier) (\($0.identifier(.bcp47)))" })"
         )
+        
+        // If no locales are supported at all, this indicates a system issue
+        if supported.isEmpty {
+            print("[Transcriber DEBUG]: WARNING - No supported locales found, this may indicate a system configuration issue")
+        }
+        
         return isSupported
     }
 
