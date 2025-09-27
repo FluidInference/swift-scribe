@@ -106,7 +106,7 @@ final class DiarizationManager {
             let startTime = Date()
             
             // Perform diarization using FluidAudio
-            let fluidResult = try await diarizer.performCompleteDiarization(
+            let fluidResult = try diarizer.performCompleteDiarization(
                 audioBuffer,
                 sampleRate: Int(sampleRate)
             )
