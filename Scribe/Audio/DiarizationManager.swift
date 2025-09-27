@@ -132,15 +132,15 @@ final class DiarizationManager {
         }
     }
     
-    // MARK: - Speaker Comparison
-    
-    func compareSpeakers(audio1: [Float], audio2: [Float]) async throws -> Float {
-        guard let diarizer = fluidDiarizer else {
-            throw DiarizationError.notInitialized
-        }
-        
-        return try await diarizer.compareSpeakers(audio1: audio1, audio2: audio2)
-    }
+//        // MARK: - Speaker Comparison
+//    
+//    func compareSpeakers(audio1: [Float], audio2: [Float]) async throws -> Float {
+//        guard let diarizer = fluidDiarizer else {
+//            throw DiarizationError.notInitialized
+//        }
+//        
+//        return try await diarizer.compareSpeakers(audio1: audio1, audio2: audio2)
+//    }
     
     // MARK: - Utility Methods
     
