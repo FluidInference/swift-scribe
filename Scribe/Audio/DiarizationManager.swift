@@ -46,8 +46,11 @@ final class DiarizationManager {
             let fluidConfig = createFluidAudioConfig()
             fluidDiarizer = DiarizerManager(config: fluidConfig)
             
-            // Initialize the diarizer (downloads models if needed)
-            try await fluidDiarizer?.initialize()
+            // Download models if needed
+            let models = try await DiarizerModels.downloadIfNeeded()
+
+            // Initialize the diarizer with models
+            fluidDiarizer?.initialize(models: models)
             
             isInitialized = true
             print("[DiarizationManager] FluidAudio diarizer initialized successfully")
