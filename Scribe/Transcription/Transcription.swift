@@ -181,7 +181,7 @@ extension SpokenWordTranscriber {
             for fallbackLocale in SpokenWordTranscriber.fallbackLocales {
                 print("[Transcriber DEBUG]: Trying fallback locale: \(fallbackLocale.identifier)")
                 do {
-                    try await allocateLocale(locale: fallbackLocale)
+                    try await reserveLocale(locale: fallbackLocale)
                     print("[Transcriber DEBUG]: Successfully allocated fallback locale: \(fallbackLocale.identifier)")
                     return
                 } catch {
@@ -225,7 +225,7 @@ extension SpokenWordTranscriber {
         }
 
         // Always ensure locale is allocated after installation/download
-        try await allocateLocale(locale: localeToUse)
+        try await reserveLocale(locale: localeToUse)
     }
 
     func supported(locale: Locale) async -> Bool {
@@ -284,9 +284,9 @@ extension SpokenWordTranscriber {
         }
     }
 
-    func allocateLocale(locale: Locale) async throws {
+    func reserveLocale(locale: Locale) async throws {
         print("[Transcriber DEBUG]: Checking if locale is already allocated: \(locale.identifier)")
-        let allocated = await AssetInventory.allocatedLocales
+        let allocated = await AssetInventory.reservedLocales
         print(
             "[Transcriber DEBUG]: Currently allocated locales: \(allocated.map { $0.identifier })")
 
@@ -296,16 +296,16 @@ extension SpokenWordTranscriber {
         }
 
         print("[Transcriber DEBUG]: Allocating locale: \(locale.identifier)")
-        try await AssetInventory.allocate(locale: locale)
+        try await AssetInventory.reserve(locale: locale)
         print("[Transcriber DEBUG]: Locale allocated successfully: \(locale.identifier)")
     }
 
-    func deallocate() async {
+    func release() async {
         print("[Transcriber DEBUG]: Deallocating locales...")
-        let allocated = await AssetInventory.allocatedLocales
+        let allocated = await AssetInventory.reservedLocales
         print("[Transcriber DEBUG]: Allocated locales: \(allocated.map { $0.identifier })")
         for locale in allocated {
-            await AssetInventory.deallocate(locale: locale)
+            await AssetInventory.release(reservedLocale: locale)
         }
         print("[Transcriber DEBUG]: Deallocation completed")
     }

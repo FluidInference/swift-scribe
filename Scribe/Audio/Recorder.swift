@@ -291,6 +291,7 @@ class Recorder {
     
     // MARK: - Diarization Processing
     
+    @MainActor
     private func processFinalDiarization() async {
         print("DEBUG [Recorder]: Processing final diarization...")
         
@@ -304,13 +305,11 @@ class Recorder {
         )
         
         // Update memo with diarization results on the main actor
-        await MainActor.run {
-            memo.wrappedValue.updateWithDiarizationResult(diarizationResult, in: modelContext)
-            
-            // If we have speaker segments, try to align them with transcription text
-            if !diarizationResult.segments.isEmpty {
-                alignTranscriptionWithSpeakers(diarizationResult)
-            }
+        memo.wrappedValue.updateWithDiarizationResult(diarizationResult, in: modelContext)
+        
+        // If we have speaker segments, try to align them with transcription text
+        if !diarizationResult.segments.isEmpty {
+            self.alignTranscriptionWithSpeakers(diarizationResult)
         }
     }
     

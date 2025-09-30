@@ -98,12 +98,11 @@ class AppSettings {
     func diarizationConfig() -> DiarizerConfig {
         return DiarizerConfig(
             clusteringThreshold: clusteringThreshold,
-            minDurationOn: Float(minSegmentDuration),
-            minDurationOff: 0.5, // Default value from FluidAudio
+            minSpeechDuration: Float(minSegmentDuration),
+            minSilenceGap: 0.5, // Default value from FluidAudio
             numClusters: maxSpeakers ?? -1, // -1 for auto-detect
-            minActivityThreshold: 10.0, // Default value from FluidAudio
-            debugMode: false,
-            modelCacheDirectory: nil
+            minActiveFramesCount: 10.0, // Default value from FluidAudio
+            debugMode: false
         )
     }
 }

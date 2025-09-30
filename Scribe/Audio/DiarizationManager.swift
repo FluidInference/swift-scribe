@@ -46,8 +46,11 @@ final class DiarizationManager {
             let fluidConfig = createFluidAudioConfig()
             fluidDiarizer = DiarizerManager(config: fluidConfig)
             
-            // Initialize the diarizer (downloads models if needed)
-            try await fluidDiarizer?.initialize()
+            // Download models if needed
+            let models = try await DiarizerModels.downloadIfNeeded()
+
+            // Initialize the diarizer with models
+            fluidDiarizer?.initialize(models: models)
             
             isInitialized = true
             print("[DiarizationManager] FluidAudio diarizer initialized successfully")
@@ -103,7 +106,7 @@ final class DiarizationManager {
             let startTime = Date()
             
             // Perform diarization using FluidAudio
-            let fluidResult = try await diarizer.performCompleteDiarization(
+            let fluidResult = try diarizer.performCompleteDiarization(
                 audioBuffer,
                 sampleRate: Int(sampleRate)
             )
@@ -127,16 +130,6 @@ final class DiarizationManager {
             isProcessing = false
             return nil
         }
-    }
-    
-    // MARK: - Speaker Comparison
-    
-    func compareSpeakers(audio1: [Float], audio2: [Float]) async throws -> Float {
-        guard let diarizer = fluidDiarizer else {
-            throw DiarizationError.notInitialized
-        }
-        
-        return try await diarizer.compareSpeakers(audio1: audio1, audio2: audio2)
     }
     
     // MARK: - Utility Methods
